@@ -33,6 +33,24 @@ import { RiskManager } from '../src/security/risk-manager.js';
 import { SecurityMonitor, MonitoringConfig } from '../src/monitoring/security-monitor.js';
 import { getSecurityConfig, validateSecurityConfig } from '../config/security-config.js';
 
+// Import enhanced error handling
+import { EnhancedErrorHandler, withErrorHandling } from '../src/utils/error-handler.js';
+import { 
+  ErrorCategory, 
+  ErrorSeverity, 
+  CategorizedError,
+  NetworkError,
+  TimeoutError,
+  SimulationError,
+  TransactionError,
+  GasError,
+  SecurityError,
+  PriceError,
+  ValidationError,
+  ContractError,
+  SystemError
+} from '../src/types/error-types.js';
+
 // Enhanced arbitrage configuration
 interface UltraArbitrageConfig {
   network: 'mainnet' | 'testnet';
@@ -287,6 +305,9 @@ class UltraFastArbitrageSystem {
   private riskManager?: RiskManager;
   private securityMonitor?: SecurityMonitor;
   
+  // Enhanced error handling
+  private errorHandler: EnhancedErrorHandler;
+  
   // State management
   private isRunning = false;
   private isPaused = false;
@@ -331,6 +352,16 @@ class UltraFastArbitrageSystem {
   
   constructor(private config: UltraArbitrageConfig) {
     this.setupAccount();
+    
+    // Initialize enhanced error handler
+    this.errorHandler = new EnhancedErrorHandler({
+      maxRetries: 3,
+      baseDelay: 1000,
+      maxDelay: 10000,
+      enableMetrics: true,
+      enableLogging: true,
+      logLevel: 'error'
+    });
   }
 
   /**
@@ -604,8 +635,30 @@ class UltraFastArbitrageSystem {
       console.log(chalk.green('✅ Ultra-Fast Arbitrage System initialized successfully'));
       
     } catch (error) {
-      console.error(chalk.red('❌ Failed to initialize arbitrage system:'), error);
-      throw error;
+      // Enhanced error handling for system initialization
+      const categorizedError = await this.errorHandler.handleError(error, {
+        operation: 'initialize',
+        context: 'systemInitialization',
+        component: 'arbitrageSystem'
+      });
+      
+      if (categorizedError instanceof NetworkError) {
+        console.error(chalk.red(`🌐 Network error during initialization: ${categorizedError.message}`));
+        console.log(chalk.yellow('🔄 Check network connectivity and RPC endpoints'));
+      } else if (categorizedError instanceof ContractError) {
+        console.error(chalk.red(`📄 Contract error during initialization: ${categorizedError.message}`));
+        console.log(chalk.yellow('🔧 Verify contract addresses and deployment'));
+      } else if (categorizedError instanceof SecurityError) {
+        console.error(chalk.red(`🛡️ Security error during initialization: ${categorizedError.message}`));
+        console.log(chalk.yellow('🔐 Check security configurations and permissions'));
+      } else if (categorizedError instanceof SystemError) {
+        console.error(chalk.red(`🔧 System error during initialization: ${categorizedError.message}`));
+        console.log(chalk.yellow('⚙️ Check system resources and configuration'));
+      } else {
+        console.error(chalk.red(`❌ Failed to initialize arbitrage system: ${categorizedError.message}`));
+      }
+      
+      throw categorizedError;
     }
   }
 
@@ -687,8 +740,37 @@ class UltraFastArbitrageSystem {
       try {
         await this.scanForOpportunities();
       } catch (error) {
-        console.error(chalk.red('❌ Error scanning for opportunities:'), error);
+        // Enhanced error handling for opportunity scanning
+        const categorizedError = await this.errorHandler.handleError(error, {
+          operation: 'scanForOpportunities',
+          context: 'opportunityScanning',
+          scanCount: this.metrics.totalScans || 0
+        });
+        
         this.metrics.securityEvents++;
+        
+        if (categorizedError instanceof PriceError) {
+          console.error(chalk.red(`💰 Price error during scanning: ${categorizedError.message}`));
+          // Price errors might indicate oracle issues
+          console.log(chalk.yellow('📊 Price oracle may be experiencing issues'));
+        } else if (categorizedError instanceof NetworkError) {
+          console.error(chalk.red(`🌐 Network error during scanning: ${categorizedError.message}`));
+          // Network errors might be temporary
+          console.log(chalk.blue('🔄 Will retry in next scan cycle'));
+        } else if (categorizedError instanceof SystemError) {
+          console.error(chalk.red(`🔧 System error during scanning: ${categorizedError.message}`));
+          // System errors might require pausing
+          if (categorizedError.getSeverity() === ErrorSeverity.CRITICAL) {
+            console.log(chalk.red.bold('🚨 CRITICAL SYSTEM ERROR - Pausing scanning'));
+            this.isPaused = true;
+          }
+        } else if (categorizedError instanceof TimeoutError) {
+          console.error(chalk.red(`⏱️ Timeout error during scanning: ${categorizedError.message}`));
+          // Timeout errors might indicate performance issues
+          console.log(chalk.yellow('⚡ Consider optimizing scan performance'));
+        } else {
+          console.error(chalk.red(`❌ Unexpected error scanning for opportunities: ${categorizedError.message}`));
+        }
       }
     }, 1000); // Scan every second
     
@@ -706,8 +788,39 @@ class UltraFastArbitrageSystem {
       try {
         await this.executeQueuedOpportunities();
       } catch (error) {
-        console.error(chalk.red('❌ Error executing opportunities:'), error);
+        // Enhanced error handling for opportunity execution
+        const categorizedError = await this.errorHandler.handleError(error, {
+          operation: 'executeQueuedOpportunities',
+          context: 'opportunityExecution',
+          queueLength: this.opportunityQueue.length,
+          executingCount: this.executingOpportunities.size
+        });
+        
         this.metrics.securityEvents++;
+        
+        if (categorizedError instanceof SystemError) {
+          console.error(chalk.red(`🔧 System error in opportunity execution: ${categorizedError.message}`));
+          // System errors might require pausing execution
+          if (categorizedError.getSeverity() === ErrorSeverity.CRITICAL) {
+            console.log(chalk.red.bold('🚨 CRITICAL SYSTEM ERROR - Pausing execution'));
+            this.isPaused = true;
+          }
+        } else if (categorizedError instanceof SecurityError) {
+          console.error(chalk.red(`🛡️ Security error in opportunity execution: ${categorizedError.message}`));
+          this.metrics.threatsDetected++;
+          
+          // Security errors might require emergency stop
+          if (categorizedError.getSeverity() === ErrorSeverity.CRITICAL) {
+            console.log(chalk.red.bold('🚨 CRITICAL SECURITY THREAT - Triggering emergency stop'));
+            this.emergencyStop = true;
+          }
+        } else if (categorizedError instanceof NetworkError) {
+          console.error(chalk.red(`🌐 Network error in opportunity execution: ${categorizedError.message}`));
+          // Network errors might be temporary
+          console.log(chalk.blue('🔄 Will retry in next execution cycle'));
+        } else {
+          console.error(chalk.red(`❌ Unexpected error executing opportunities: ${categorizedError.message}`));
+        }
       }
     }, 100); // Execute every 100ms for ultra-fast response
     
@@ -750,9 +863,41 @@ class UltraFastArbitrageSystem {
     const startTime = Date.now();
     
     try {
-      // Get current market data
-      const blockNumber = await this.publicClient.getBlockNumber();
-      const gasPrice = await this.publicClient.getGasPrice();
+      // Get current market data with enhanced error handling
+      let blockNumber: bigint;
+      let gasPrice: bigint;
+      
+      try {
+        blockNumber = await this.publicClient.getBlockNumber();
+      } catch (error) {
+        const categorizedError = await this.errorHandler.handleError(error, {
+          operation: 'getBlockNumber',
+          context: 'scanForOpportunities'
+        });
+        
+        if (categorizedError instanceof NetworkError) {
+          console.log(chalk.yellow('🌐 Network error getting block number, using cached value'));
+          blockNumber = BigInt(Date.now()); // Fallback to timestamp
+        } else {
+          throw categorizedError;
+        }
+      }
+      
+      try {
+        gasPrice = await this.publicClient.getGasPrice();
+      } catch (error) {
+        const categorizedError = await this.errorHandler.handleError(error, {
+          operation: 'getGasPrice',
+          context: 'scanForOpportunities'
+        });
+        
+        if (categorizedError instanceof NetworkError) {
+          console.log(chalk.yellow('⛽ Network error getting gas price, using default value'));
+          gasPrice = parseEther('0.000005'); // 5 gwei fallback
+        } else {
+          throw categorizedError;
+        }
+      }
       
       // Define major trading pairs for scanning
       const tradingPairs = [
@@ -773,7 +918,7 @@ class UltraFastArbitrageSystem {
         },
       ];
       
-      // Get real-time prices from oracle
+      // Get real-time prices from oracle with enhanced error handling
       const opportunities: EnhancedArbitrageOpportunity[] = [];
       
       for (const pair of tradingPairs) {
@@ -787,7 +932,25 @@ class UltraFastArbitrageSystem {
             }
           }
         } catch (error) {
-          console.warn(chalk.yellow(`⚠️ Error getting price for ${pair.tokenA}/${pair.tokenB}:`), error);
+          const categorizedError = await this.errorHandler.handleError(error, {
+            operation: 'getPriceData',
+            tokenA: pair.tokenA,
+            tokenB: pair.tokenB,
+            context: 'scanForOpportunities'
+          });
+          
+          if (categorizedError instanceof PriceError) {
+            console.log(chalk.yellow(`💰 Price oracle error for ${pair.tokenA}/${pair.tokenB}: ${categorizedError.message}`));
+            // Continue with other pairs
+          } else if (categorizedError instanceof NetworkError) {
+            console.log(chalk.yellow(`🌐 Network error getting price for ${pair.tokenA}/${pair.tokenB}: ${categorizedError.message}`));
+            // Continue with other pairs
+          } else if (categorizedError instanceof TimeoutError) {
+            console.log(chalk.yellow(`⏰ Timeout getting price for ${pair.tokenA}/${pair.tokenB}: ${categorizedError.message}`));
+            // Continue with other pairs
+          } else {
+            console.warn(chalk.yellow(`⚠️ Unexpected error getting price for ${pair.tokenA}/${pair.tokenB}: ${categorizedError.message}`));
+          }
         }
       }
       
@@ -821,8 +984,30 @@ class UltraFastArbitrageSystem {
       }
       
     } catch (error) {
-      console.error(chalk.red('❌ Error in opportunity scanning:'), error);
+      // Enhanced error handling for overall scanning failures
+      const categorizedError = await this.errorHandler.handleError(error, {
+        operation: 'scanForOpportunities',
+        context: 'opportunityScanning',
+        startTime,
+        queueLength: this.opportunityQueue.length
+      });
+      
       this.metrics.securityEvents++;
+      
+      if (categorizedError instanceof SystemError) {
+        console.error(chalk.red(`🔧 System error in opportunity scanning: ${categorizedError.message}`));
+        // System errors might require restart
+        if (categorizedError.getSeverity() === ErrorSeverity.CRITICAL) {
+          console.log(chalk.red.bold('🚨 CRITICAL SYSTEM ERROR - Consider restarting scanner'));
+          this.isPaused = true;
+        }
+      } else if (categorizedError instanceof NetworkError) {
+        console.error(chalk.red(`🌐 Network error in opportunity scanning: ${categorizedError.message}`));
+        // Network errors might be temporary
+        console.log(chalk.blue('🔄 Will retry scanning in next cycle'));
+      } else {
+        console.error(chalk.red(`❌ Unexpected error in opportunity scanning: ${categorizedError.message}`));
+      }
     }
   }
   
@@ -905,7 +1090,27 @@ class UltraFastArbitrageSystem {
       };
       
     } catch (error) {
-      console.warn(chalk.yellow('⚠️ Error calculating arbitrage opportunity:'), error);
+      // Enhanced error handling for arbitrage calculation
+      const categorizedError = await this.errorHandler.handleError(error, {
+        operation: 'calculateArbitrageFromPriceData',
+        context: 'arbitrageCalculation',
+        tokenA: pair.tokenA,
+        tokenB: pair.tokenB,
+        baseAmount: pair.baseAmount.toString()
+      });
+      
+      if (categorizedError instanceof PriceError) {
+        console.warn(chalk.yellow(`💰 Price error calculating arbitrage: ${categorizedError.message}`));
+      } else if (categorizedError instanceof ContractError) {
+        console.warn(chalk.yellow(`📄 Contract error calculating arbitrage: ${categorizedError.message}`));
+      } else if (categorizedError instanceof NetworkError) {
+        console.warn(chalk.yellow(`🌐 Network error calculating arbitrage: ${categorizedError.message}`));
+      } else if (categorizedError instanceof SimulationError) {
+        console.warn(chalk.yellow(`🧪 Simulation error calculating arbitrage: ${categorizedError.message}`));
+      } else {
+        console.warn(chalk.yellow(`⚠️ Error calculating arbitrage opportunity: ${categorizedError.message}`));
+      }
+      
       return null;
     }
   }
@@ -1334,10 +1539,84 @@ class UltraFastArbitrageSystem {
     } catch (error) {
       const executionTime = Date.now() - startTime;
       
+      // Enhanced error handling with specific categorization
+      const categorizedError = await this.errorHandler.handleError(error, {
+        operation: 'executeOpportunity',
+        opportunityId: opportunity.id,
+        tokenA: opportunity.tokenA,
+        tokenB: opportunity.tokenB,
+        amountIn: opportunity.amountIn.toString(),
+        expectedProfit: opportunity.expectedProfit.toString(),
+        executionTime,
+        gasEstimate: opportunity.gasEstimate.toString(),
+        riskScore: opportunity.riskScore,
+        mevRisk: opportunity.mevRisk
+      });
+      
       this.metrics.failedArbitrages++;
       
-      // Remove from queue
-      this.opportunityQueue = this.opportunityQueue.filter(op => op.id !== opportunity.id);
+      // Determine if this is a retryable error
+      const isRetryable = categorizedError.isRetryable();
+      const severity = categorizedError.getSeverity();
+      
+      // Handle specific error types
+      let shouldRemoveFromQueue = true;
+      let threatDetected = false;
+      
+      if (categorizedError instanceof NetworkError) {
+        console.log(chalk.yellow(`🌐 Network error in arbitrage ${opportunity.id}: ${categorizedError.message}`));
+        // Network errors might be temporary, consider retrying
+        if (isRetryable && opportunity.expiresAt > Date.now()) {
+          shouldRemoveFromQueue = false;
+          console.log(chalk.blue(`🔄 Will retry opportunity ${opportunity.id} due to network error`));
+        }
+      } else if (categorizedError instanceof TimeoutError) {
+        console.log(chalk.yellow(`⏰ Timeout error in arbitrage ${opportunity.id}: ${categorizedError.message}`));
+        // Timeouts might indicate network congestion
+        this.metrics.securityEvents++;
+      } else if (categorizedError instanceof SimulationError) {
+        console.log(chalk.red(`🧪 Simulation failed for arbitrage ${opportunity.id}: ${categorizedError.message}`));
+        // Simulation failures indicate the opportunity is no longer valid
+        shouldRemoveFromQueue = true;
+      } else if (categorizedError instanceof TransactionError) {
+        console.log(chalk.red(`📝 Transaction error in arbitrage ${opportunity.id}: ${categorizedError.message}`));
+        // Check if it's a revert or gas-related issue
+        if (categorizedError.message.includes('revert') || categorizedError.message.includes('execution reverted')) {
+          console.log(chalk.red(`❌ Transaction reverted - opportunity ${opportunity.id} no longer valid`));
+        }
+      } else if (categorizedError instanceof GasError) {
+        console.log(chalk.yellow(`⛽ Gas error in arbitrage ${opportunity.id}: ${categorizedError.message}`));
+        // Gas errors might be temporary due to network congestion
+        if (isRetryable && opportunity.expiresAt > Date.now()) {
+          shouldRemoveFromQueue = false;
+          console.log(chalk.blue(`🔄 Will retry opportunity ${opportunity.id} with adjusted gas parameters`));
+        }
+      } else if (categorizedError instanceof SecurityError) {
+        console.log(chalk.red(`🛡️ Security threat detected in arbitrage ${opportunity.id}: ${categorizedError.message}`));
+        threatDetected = true;
+        this.metrics.threatsDetected++;
+        this.metrics.securityEvents++;
+        
+        // Immediately remove security threats
+        shouldRemoveFromQueue = true;
+        
+        // Trigger emergency protocols if critical
+        if (severity === ErrorSeverity.CRITICAL) {
+          console.log(chalk.red.bold(`🚨 CRITICAL SECURITY THREAT - Triggering emergency protocols`));
+          this.emergencyStop = true;
+        }
+      } else if (categorizedError instanceof ContractError) {
+        console.log(chalk.red(`📋 Contract error in arbitrage ${opportunity.id}: ${categorizedError.message}`));
+        // Contract errors usually indicate permanent issues
+        shouldRemoveFromQueue = true;
+      } else {
+        console.log(chalk.red(`❌ Unknown error in arbitrage ${opportunity.id}: ${categorizedError.message}`));
+      }
+      
+      // Remove from queue if necessary
+      if (shouldRemoveFromQueue) {
+        this.opportunityQueue = this.opportunityQueue.filter(op => op.id !== opportunity.id);
+      }
       
       const result: EnhancedExecutionResult = {
         success: false,
@@ -1346,26 +1625,36 @@ class UltraFastArbitrageSystem {
         gasEfficiency: 0,
         profitMargin: 0,
         securityChecks: false,
-        threatDetected: false,
+        threatDetected,
         latency: executionTime,
         throughput: 0,
-        error: (error as Error).message,
+        error: categorizedError.message,
+        metadata: {
+          errorCategory: categorizedError.getCategory(),
+          errorSeverity: severity,
+          isRetryable,
+          errorType: categorizedError.constructor.name,
+          originalError: (error as Error).message
+        }
       };
       
-      // Log security event for failure
+      // Log security event for failure with enhanced details
       if (this.securityMonitor) {
-        const securityChecks = true; // Security checks were performed
-        const threatDetected = false; // No threat detected, just execution failure
-        
         await this.securityMonitor.logSecurityEvent({
-          type: 'high_risk_trade',
-          severity: 'medium',
+          type: threatDetected ? 'security_threat' : 'execution_failure',
+          severity: severity === ErrorSeverity.CRITICAL ? 'high' : 
+                   severity === ErrorSeverity.HIGH ? 'medium' : 'low',
           timestamp: Date.now(),
           details: {
             opportunityId: opportunity.id,
-            error: (error as Error).message,
+            error: categorizedError.message,
+            errorCategory: categorizedError.getCategory(),
+            errorSeverity: severity,
+            errorType: categorizedError.constructor.name,
+            isRetryable,
+            threatDetected,
             executionTime,
-            securityChecks,
+            securityChecks: true,
             threatDetected,
             errorType: (error as Error).name,
           },
@@ -1607,7 +1896,30 @@ async function main(): Promise<void> {
     console.log(chalk.dim('Press Ctrl+C to stop, SIGUSR1 for emergency stop\n'));
     
   } catch (error) {
-    console.error(chalk.red('❌ Failed to start arbitrage system:'), error);
+    // Enhanced error handling for main function
+    console.error(chalk.red('❌ Failed to start arbitrage system:'));
+    
+    if (error instanceof Error) {
+      if (error.message.includes('Missing required configuration')) {
+        console.error(chalk.red('🔧 Configuration Error:'), error.message);
+        console.log(chalk.yellow('💡 Please check your .env file and ensure all required variables are set'));
+      } else if (error.message.includes('network') || error.message.includes('connection')) {
+        console.error(chalk.red('🌐 Network Error:'), error.message);
+        console.log(chalk.yellow('💡 Please check your internet connection and RPC endpoints'));
+      } else if (error.message.includes('contract') || error.message.includes('address')) {
+        console.error(chalk.red('📄 Contract Error:'), error.message);
+        console.log(chalk.yellow('💡 Please verify contract addresses and deployment'));
+      } else if (error.message.includes('private key') || error.message.includes('account')) {
+        console.error(chalk.red('🔐 Authentication Error:'), error.message);
+        console.log(chalk.yellow('💡 Please check your private key and account configuration'));
+      } else {
+        console.error(chalk.red('❌ Unexpected Error:'), error.message);
+        console.log(chalk.yellow('💡 Please check the logs above for more details'));
+      }
+    } else {
+      console.error(chalk.red('❌ Unknown error occurred:'), error);
+    }
+    
     process.exit(1);
   }
 }
