@@ -83,7 +83,8 @@ contract FlashLoanArbUltraFast is ReentrancyGuard, Ownable {
     mapping(address => bool) public authorizedCallers;
     mapping(address => RouterInfo) public routerInfo;
     mapping(address => uint256) public tokenBalances;
-    mapping(bytes32 => bool) public executedTxs; // Replay protection
+    mapping(address => uint256) public callerNonces; // Proper nonce-based replay protection
+    mapping(address => bool) public whitelistedRouters; // Router whitelist for security
     
     // Circuit breaker limits (packed)
     struct Limits {
@@ -115,7 +116,7 @@ contract FlashLoanArbUltraFast is ReentrancyGuard, Ownable {
     
     event CircuitBreakerTripped(uint8 reason, uint256 value);
     event EmergencyPause(bool paused);
-    event RouterUpdated(address indexed router, bool active);
+    event RouterUpdated(address indexed router, bool isWhitelisted);
 
     // ============ MODIFIERS ============
     
@@ -157,7 +158,7 @@ contract FlashLoanArbUltraFast is ReentrancyGuard, Ownable {
             consecutiveFailures: 0
         });
         
-        // Initialize routers
+        // Initialize routers and whitelist them
         for (uint i = 0; i < _routers.length; i++) {
             routerInfo[_routers[i]] = RouterInfo({
                 router: _routers[i],
@@ -165,6 +166,7 @@ contract FlashLoanArbUltraFast is ReentrancyGuard, Ownable {
                 failureCount: 0,
                 lastUsed: 0
             });
+            whitelistedRouters[_routers[i]] = true; // Whitelist trusted routers
         }
         
         // Authorize owner
@@ -189,16 +191,9 @@ contract FlashLoanArbUltraFast is ReentrancyGuard, Ownable {
         // Gas optimization: Cache frequently used values
         uint256 gasStart = gasleft();
         
-        // Replay protection
-        bytes32 txHash = keccak256(abi.encodePacked(
-            params.tokenIn,
-            params.amount,
-            params.nonce,
-            block.number,
-            msg.sender
-        ));
-        require(!executedTxs[txHash], "Transaction already executed");
-        executedTxs[txHash] = true;
+        // CRITICAL SECURITY: Proper nonce-based replay protection
+        require(params.nonce == callerNonces[msg.sender], "Invalid nonce");
+        callerNonces[msg.sender]++; // Increment nonce after validation
         
         // Quick profitability check
         uint256 estimatedProfit = _quickProfitEstimate(
@@ -300,6 +295,9 @@ contract FlashLoanArbUltraFast is ReentrancyGuard, Ownable {
         uint256 repayAmount
     ) external returns (uint256 profit) {
         require(msg.sender == address(this), "Internal only");
+        
+        // CRITICAL SECURITY: Router whitelist validation
+        require(whitelistedRouters[params.routerA] && whitelistedRouters[params.routerB], "Router not whitelisted");
         
         IERC20 token = IERC20(params.tokenIn);
         
@@ -425,6 +423,20 @@ contract FlashLoanArbUltraFast is ReentrancyGuard, Ownable {
     // ============ VIEW FUNCTIONS (Optimized) ============
     
     /**
+     * @dev Get current nonce for a caller - CRITICAL for off-chain system
+     */
+    function getCurrentNonce(address caller) external view returns (uint256) {
+        return callerNonces[caller];
+    }
+    
+    /**
+     * @dev Check if router is whitelisted
+     */
+    function isRouterWhitelisted(address router) external view returns (bool) {
+        return whitelistedRouters[router];
+    }
+
+    /**
      * @dev Get contract statistics in single call
      */
     function getUltraFastStats() external view returns (
@@ -474,6 +486,31 @@ contract FlashLoanArbUltraFast is ReentrancyGuard, Ownable {
     
     // ============ ADMIN FUNCTIONS (Optimized) ============
     
+    /**
+     * @dev Update router whitelist - CRITICAL SECURITY FUNCTION
+     */
+    function updateRouter(address _router, bool _isWhitelisted) external onlyOwner {
+        require(_router != address(0), "Invalid router address");
+        whitelistedRouters[_router] = _isWhitelisted;
+        emit RouterUpdated(_router, _isWhitelisted);
+    }
+    
+    /**
+     * @dev Batch update router whitelist
+     */
+    function batchUpdateRouters(
+        address[] calldata _routers,
+        bool[] calldata _isWhitelisted
+    ) external onlyOwner {
+        require(_routers.length == _isWhitelisted.length, "Array length mismatch");
+        
+        for (uint256 i = 0; i < _routers.length; i++) {
+            require(_routers[i] != address(0), "Invalid router address");
+            whitelistedRouters[_routers[i]] = _isWhitelisted[i];
+            emit RouterUpdated(_routers[i], _isWhitelisted[i]);
+        }
+    }
+
     /**
      * @dev Batch update authorized callers
      */

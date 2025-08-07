@@ -44,6 +44,7 @@ interface MonitoringConfig {
   rpcUrl: string;
   wsUrl?: string;
   pollingInterval: number;
+  enableEventMonitoring: boolean;
   alertConfig: AlertConfig;
   thresholds: {
     maxGasPrice: bigint;
@@ -666,6 +667,15 @@ ${JSON.stringify(event.details, null, 2)}
 
   async logSecurityEvent(eventData: Partial<SecurityEvent>): Promise<void> {
     await this.createSecurityEvent(eventData);
+  }
+
+  // Alias methods for compatibility
+  async start(): Promise<void> {
+    return this.startMonitoring();
+  }
+
+  async stop(): Promise<void> {
+    return this.stopMonitoring();
   }
 }
 

@@ -534,35 +534,31 @@ class UltraFastArbitrageSystem {
           maxConsecutiveFailures: securityConfig.riskManagement.maxConsecutiveFailures,
           circuitBreakerThreshold: securityConfig.riskManagement.circuitBreakerThreshold,
           cooldownPeriodMs: securityConfig.riskManagement.cooldownPeriodMs,
-          enableDynamicLimits: securityConfig.riskManagement.enableDynamicLimits,
-          enableVolatilityAdjustment: securityConfig.riskManagement.enableVolatilityAdjustment,
+          enableDynamicLimits: true, // Default to true since not in config
         });
         
         // Initialize security monitor
         console.log(chalk.blue('🔍 Initializing security monitor...'));
         const monitoringConfig: MonitoringConfig = {
-          contractAddress: this.config.contractConfig.address,
+          contractAddress: this.config.contractConfig.contractAddress,
+          network: this.config.network,
           rpcUrl: process.env.RPC_URL!,
           wsUrl: process.env.WS_URL,
+          pollingInterval: 5000,
           enableEventMonitoring: true,
-          enableMetricsCollection: true,
-          enableAlerting: true,
-          alertChannels: {
-            webhook: process.env.ALERT_WEBHOOK_URL,
-            slack: process.env.SLACK_WEBHOOK_URL,
-            discord: process.env.DISCORD_WEBHOOK_URL,
+          alertConfig: {
+            enabled: true,
+            webhookUrl: process.env.ALERT_WEBHOOK_URL,
+            slackChannel: process.env.SLACK_WEBHOOK_URL,
+            discordWebhook: process.env.DISCORD_WEBHOOK_URL,
+            minSeverity: 'medium',
+            rateLimitMinutes: 5,
           },
-          alertThresholds: {
-            gasAnomalyThreshold: 150, // 150% of normal gas
-            mevAttackThreshold: 3,
-            lowProfitThreshold: 0.01, // 1% profit-to-gas ratio
-            failureRateThreshold: 0.1, // 10% failure rate
-            responseTimeThreshold: 5000, // 5 seconds
-          },
-          metricsRetentionDays: 7,
-          alertRateLimit: {
-            maxAlertsPerHour: 10,
-            cooldownMinutes: 5,
+          thresholds: {
+            maxGasPrice: BigInt(50 * 1e9), // 50 gwei
+            maxSlippageBps: 100, // 1%
+            maxFailureRate: 0.1, // 10%
+            maxResponseTimeMs: 5000,
           },
         };
         
@@ -991,22 +987,22 @@ class UltraFastArbitrageSystem {
     for (const opportunity of opportunities) {
       // Security validation
       if (this.securityLayer) {
-        const validation = await this.securityLayer.validateTransaction(
-          this.account.address,
-          this.config.contractAddress,
-          '0x12345678', // Mock function selector
-          opportunity.amountIn
-        );
+        const validation = await this.securityLayer.validateTransaction({
+          to: this.config.contractAddress,
+          value: 0n,
+          gasPrice: await this.publicClient.getGasPrice(),
+          data: '0x12345678', // Mock function selector
+        });
         
-        if (!validation.allowed) {
-          console.log(chalk.yellow(`⚠️ Opportunity ${opportunity.id} blocked by security layer: ${validation.reason}`));
+        if (!validation.isValid) {
+          console.log(chalk.yellow(`⚠️ Opportunity ${opportunity.id} blocked by security layer: ${validation.threats.join(', ')}`));
           this.metrics.blockedTransactions++;
           continue;
         }
         
-        if (validation.requiresMultiSig) {
-          console.log(chalk.blue(`🔐 Opportunity ${opportunity.id} requires multi-signature approval`));
-          // Handle multi-sig flow
+        if (validation.riskScore > 70) {
+          console.log(chalk.blue(`🔐 Opportunity ${opportunity.id} has high risk score: ${validation.riskScore}`));
+          // Handle high risk flow
           continue;
         }
       }
@@ -1084,46 +1080,46 @@ class UltraFastArbitrageSystem {
       // Risk assessment
       if (this.riskManager) {
         const riskAssessment = await this.riskManager.assessTradeRisk({
-          tokenA: opportunity.tokenA,
-          tokenB: opportunity.tokenB,
-          amountUsd: Number(formatEther(opportunity.amountIn)) * 300, // Approximate USD value
-          liquidityUsd: opportunity.metadata?.liquidity || 1000000,
-          priceImpactBps: Math.floor(opportunity.expectedSlippage * 10000),
-          dexName: opportunity.exchanges[0] || 'unknown',
-          tradingFrequency: this.metrics.totalArbitrages,
+          tokenIn: opportunity.tokenA,
+          tokenOut: opportunity.tokenB,
+          amountIn: opportunity.amountIn,
+          router1: opportunity.exchanges[0] as Address || '0x0000000000000000000000000000000000000000',
+          router2: opportunity.exchanges[1] as Address || '0x0000000000000000000000000000000000000000',
+          expectedProfit: opportunity.expectedProfit,
+          priceImpact: opportunity.expectedSlippage,
+          liquidity: BigInt(opportunity.metadata?.liquidity || 1000000),
         });
         
-        if (riskAssessment.riskLevel === 'HIGH' || riskAssessment.shouldBlock) {
-          console.log(chalk.yellow(`⚠️ High risk detected for ${opportunity.id}: ${riskAssessment.reason}`));
+        if (!riskAssessment.approved || riskAssessment.riskScore > 70) {
+          console.log(chalk.yellow(`⚠️ High risk detected for ${opportunity.id}: ${riskAssessment.warnings.join(', ')}`));
           threatDetected = true;
           
           // Check if we should proceed based on risk tolerance
           if (riskAssessment.riskScore > 80) {
-            throw new Error(`Risk too high: ${riskAssessment.reason}`);
+            throw new Error(`Risk too high: ${riskAssessment.warnings.join(', ')}`);
           }
         }
         
         // Update risk metrics
         this.riskManager.recordTradeExecution({
-          tokenA: opportunity.tokenA,
-          tokenB: opportunity.tokenB,
-          amountUsd: Number(formatEther(opportunity.amountIn)) * 300,
-          liquidityUsd: opportunity.metadata?.liquidity || 1000000,
-          priceImpactBps: Math.floor(opportunity.expectedSlippage * 10000),
-          dexName: opportunity.exchanges[0] || 'unknown',
-          tradingFrequency: this.metrics.totalArbitrages,
-        }, true, Number(formatEther(opportunity.expectedProfit)) * 300);
+          opportunityId: opportunity.id,
+          tokenIn: opportunity.tokenA,
+          tokenOut: opportunity.tokenB,
+          amountIn: opportunity.amountIn,
+          profit: opportunity.expectedProfit,
+          gasUsed: 200000n, // Estimated gas
+          success: true,
+          timestamp: Date.now(),
+          executionTime: 0, // Will be updated later
+          riskScore: riskAssessment.riskScore,
+        });
       }
       
       // MEV protection
       let mevProtectedParams: any = {};
       if (this.mevProtectionManager) {
         // Check for MEV threats
-        const mevThreat = await this.mevProtectionManager.detectMEVThreats(
-          opportunity.tokenA,
-          opportunity.tokenB,
-          opportunity.amountIn
-        );
+        const mevThreat = await this.mevProtectionManager.detectMEVThreats(opportunity);
         
         if (mevThreat.frontrunningRisk > 70 || mevThreat.sandwichRisk > 70) {
           console.log(chalk.yellow(`⚠️ MEV threat detected for ${opportunity.id}`));
@@ -1175,15 +1171,16 @@ class UltraFastArbitrageSystem {
         });
         
         // Execute arbitrage through contract interface
-        const contractResult = await this.contractInterface.executeUltraFastArbitrage({
-          tokenA: opportunity.tokenA,
-          tokenB: opportunity.tokenB,
-          amountIn: opportunity.amountIn,
-          minAmountOut: opportunity.expectedProfit * 95n / 100n, // 5% slippage tolerance
-          exchangeA: exchangeIds[0] || 0,
-          exchangeB: exchangeIds[1] || 1,
-          deadline: BigInt(Math.floor(Date.now() / 1000) + 300), // 5 minutes
-        });
+        const contractResult = await this.contractInterface.executeUltraFastArbitrage(
+          opportunity.tokenA,
+          opportunity.tokenB,
+          opportunity.amountIn,
+          opportunity.expectedProfit * 95n / 100n, // 5% slippage tolerance
+          this.config.routerAddresses[0], // routerA
+          this.config.routerAddresses[1], // routerB
+          [opportunity.tokenA, opportunity.tokenB], // pathA
+          [opportunity.tokenB, opportunity.tokenA]  // pathB
+        );
         
         if (!contractResult.success) {
           throw new Error(contractResult.error || 'Contract execution failed');
@@ -1227,7 +1224,7 @@ class UltraFastArbitrageSystem {
       // Calculate actual results
       const executionTime = Date.now() - startTime;
       const gasUsed = receipt.gasUsed;
-      const gasCost: bigint = gasUsed * gasPrice;
+      const gasCost: bigint = gasUsed * BigInt(gasPrice);
       const netProfit = actualProfit - gasCost;
       
       // Update metrics

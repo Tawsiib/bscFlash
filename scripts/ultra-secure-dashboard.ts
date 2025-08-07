@@ -216,6 +216,7 @@ class UltraSecureDashboard {
         rpcUrl: process.env.RPC_URL!,
         wsUrl: process.env.WS_URL,
         pollingInterval: 5000,
+        enableEventMonitoring: true,
         alertConfig: {
           enabled: true,
           webhookUrl: process.env.ALERT_WEBHOOK_URL,

@@ -884,6 +884,13 @@ export class UltraFastGasOptimizer {
   }
   
   /**
+   * Stop optimization (alias for stop method)
+   */
+  async stopOptimization(): Promise<void> {
+    return this.stop();
+  }
+
+  /**
    * Public API methods
    */
   getMetrics(): GasMetrics {

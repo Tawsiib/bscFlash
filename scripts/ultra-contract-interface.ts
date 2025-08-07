@@ -22,25 +22,70 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { bsc, bscTestnet } from 'viem/chains';
 import chalk from 'chalk';
 
-// Ultra-optimized ABI for gas efficiency
+// Ultra-optimized ABI for gas efficiency - Updated for new security model
 const ULTRA_ARBITRAGE_ABI = [
-  // Core arbitrage function - gas optimized
+  // Core arbitrage function with ArbitrageParams struct
   {
     name: 'executeUltraFastArbitrage',
     type: 'function',
-    stateMutability: 'payable',
+    stateMutability: 'nonpayable',
     inputs: [
-      { name: 'tokenA', type: 'address' },
-      { name: 'tokenB', type: 'address' },
-      { name: 'amountIn', type: 'uint256' },
-      { name: 'minAmountOut', type: 'uint256' },
-      { name: 'exchanges', type: 'uint8[]' },
-      { name: 'data', type: 'bytes' }
+      { 
+        name: 'params', 
+        type: 'tuple',
+        components: [
+          { name: 'tokenIn', type: 'address' },
+          { name: 'tokenOut', type: 'address' },
+          { name: 'amount', type: 'uint256' },
+          { name: 'minAmountOut', type: 'uint256' },
+          { name: 'routerA', type: 'address' },
+          { name: 'routerB', type: 'address' },
+          { name: 'deadline', type: 'uint32' },
+          { name: 'nonce', type: 'uint32' }
+        ]
+      },
+      { name: 'pathA', type: 'address[]' },
+      { name: 'pathB', type: 'address[]' }
+    ],
+    outputs: []
+  },
+  
+  // Get current nonce for caller - CRITICAL for security
+  {
+    name: 'getCurrentNonce',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'caller', type: 'address' }
     ],
     outputs: [
-      { name: 'profit', type: 'uint256' },
-      { name: 'gasUsed', type: 'uint256' }
+      { name: 'nonce', type: 'uint256' }
     ]
+  },
+  
+  // Check if router is whitelisted
+  {
+    name: 'isRouterWhitelisted',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'router', type: 'address' }
+    ],
+    outputs: [
+      { name: 'isWhitelisted', type: 'bool' }
+    ]
+  },
+  
+  // Router management functions
+  {
+    name: 'updateRouter',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: '_router', type: 'address' },
+      { name: '_isWhitelisted', type: 'bool' }
+    ],
+    outputs: []
   },
   
   // Batch arbitrage for multiple opportunities
@@ -184,18 +229,25 @@ const ULTRA_ARBITRAGE_ABI = [
     outputs: []
   },
   
-  // Events for monitoring
+  // Events for monitoring - Updated for new contract
   {
-    name: 'UltraFastArbitrageExecuted',
+    name: 'ArbitrageExecuted',
     type: 'event',
     inputs: [
-      { name: 'trader', type: 'address', indexed: true },
-      { name: 'tokenA', type: 'address', indexed: true },
-      { name: 'tokenB', type: 'address', indexed: true },
-      { name: 'amountIn', type: 'uint256' },
+      { name: 'token', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256' },
       { name: 'profit', type: 'uint256' },
       { name: 'gasUsed', type: 'uint256' },
-      { name: 'executionTime', type: 'uint256' }
+      { name: 'executor', type: 'address', indexed: true }
+    ]
+  },
+  
+  {
+    name: 'RouterUpdated',
+    type: 'event',
+    inputs: [
+      { name: 'router', type: 'address', indexed: true },
+      { name: 'isWhitelisted', type: 'bool' }
     ]
   },
   
@@ -376,31 +428,60 @@ class UltraFastContractInterface {
   }
 
   /**
-   * Execute ultra-fast arbitrage with gas optimization
+   * Execute ultra-fast arbitrage with new security model
    */
   async executeUltraFastArbitrage(
-    tokenA: Address,
-    tokenB: Address,
-    amountIn: bigint,
+    tokenIn: Address,
+    tokenOut: Address,
+    amount: bigint,
     minAmountOut: bigint,
-    exchanges: ExchangeId[],
-    data: Hex = '0x'
+    routerA: Address,
+    routerB: Address,
+    pathA: Address[],
+    pathB: Address[]
   ): Promise<ExecutionResult> {
     const startTime = Date.now();
     
     try {
-      console.log(chalk.blue(`⚡ Executing ultra-fast arbitrage...`));
-      console.log(chalk.cyan(`   Token A: ${tokenA}`));
-      console.log(chalk.cyan(`   Token B: ${tokenB}`));
-      console.log(chalk.cyan(`   Amount In: ${formatEther(amountIn)} BNB`));
+      console.log(chalk.blue(`⚡ Executing ultra-fast arbitrage with new security model...`));
+      console.log(chalk.cyan(`   Token In: ${tokenIn}`));
+      console.log(chalk.cyan(`   Token Out: ${tokenOut}`));
+      console.log(chalk.cyan(`   Amount: ${formatEther(amount)} BNB`));
       console.log(chalk.cyan(`   Min Amount Out: ${formatEther(minAmountOut)} BNB`));
-      console.log(chalk.cyan(`   Exchanges: ${exchanges.join(', ')}`));
+      console.log(chalk.cyan(`   Router A: ${routerA}`));
+      console.log(chalk.cyan(`   Router B: ${routerB}`));
       
-      // Encode function call
+      // CRITICAL: Get current nonce for proper replay protection
+      const currentNonce = await this.getCurrentNonce(this.account.address);
+      console.log(chalk.yellow(`   Current Nonce: ${currentNonce}`));
+      
+      // Verify routers are whitelisted
+      const [routerAWhitelisted, routerBWhitelisted] = await Promise.all([
+        this.isRouterWhitelisted(routerA),
+        this.isRouterWhitelisted(routerB)
+      ]);
+      
+      if (!routerAWhitelisted || !routerBWhitelisted) {
+        throw new Error(`Router not whitelisted: A=${routerAWhitelisted}, B=${routerBWhitelisted}`);
+      }
+      
+      // Build ArbitrageParams struct
+      const params = {
+        tokenIn,
+        tokenOut,
+        amount,
+        minAmountOut,
+        routerA,
+        routerB,
+        deadline: Math.floor(Date.now() / 1000) + 300, // 5 minutes
+        nonce: currentNonce
+      };
+      
+      // Encode function call with new structure
       const calldata = encodeFunctionData({
         abi: ULTRA_ARBITRAGE_ABI,
         functionName: 'executeUltraFastArbitrage',
-        args: [tokenA, tokenB, amountIn, minAmountOut, exchanges, data]
+        args: [params, pathA, pathB]
       });
       
       // Get optimized gas parameters
@@ -418,20 +499,15 @@ class UltraFastContractInterface {
       if (this.config.enableMEVProtection) {
         // Add delay to prevent front-running
         await new Promise(resolve => setTimeout(resolve, this.config.mevProtectionDelay));
-        
-        // Use commit-reveal scheme or private mempool
-        transactionHash = await this.executeWithMEVProtection(
-          tokenA, tokenB, amountIn, minAmountOut, exchanges, data
-        );
-      } else {
-        // Direct execution
-        transactionHash = await this.walletClient.sendTransaction({
-          to: this.config.contractAddress,
-          data: calldata,
-          gas: gasLimit,
-          gasPrice,
-        });
       }
+      
+      // Direct execution with new contract
+      transactionHash = await this.walletClient.sendTransaction({
+        to: this.config.contractAddress,
+        data: calldata,
+        gas: gasLimit,
+        gasPrice,
+      });
       
       console.log(chalk.yellow(`   Transaction Hash: ${transactionHash}`));
       
@@ -462,6 +538,7 @@ class UltraFastContractInterface {
       console.log(chalk.cyan(`   Profit: ${result.profit ? formatEther(result.profit) : '0'} BNB`));
       console.log(chalk.cyan(`   Gas Used: ${result.gasUsed || 0n}`));
       console.log(chalk.cyan(`   Execution Time: ${executionTime}ms`));
+      console.log(chalk.cyan(`   Next Nonce: ${currentNonce + 1}`));
       
       return {
         success: true,
@@ -481,6 +558,41 @@ class UltraFastContractInterface {
         executionTime,
         error: (error as Error).message,
       };
+    }
+  }
+  
+  /**
+   * Get current nonce for caller - CRITICAL for security
+   */
+  async getCurrentNonce(caller: Address): Promise<number> {
+    try {
+      const nonce = await this.publicClient.readContract({
+        address: this.config.contractAddress,
+        abi: ULTRA_ARBITRAGE_ABI,
+        functionName: 'getCurrentNonce',
+        args: [caller]
+      });
+      return Number(nonce);
+    } catch (error) {
+      console.error(chalk.red('❌ Error getting current nonce:'), error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Check if router is whitelisted
+   */
+  async isRouterWhitelisted(router: Address): Promise<boolean> {
+    try {
+      return await this.publicClient.readContract({
+        address: this.config.contractAddress,
+        abi: ULTRA_ARBITRAGE_ABI,
+        functionName: 'isRouterWhitelisted',
+        args: [router]
+      });
+    } catch (error) {
+      console.error(chalk.red('❌ Error checking router whitelist:'), error);
+      return false;
     }
   }
 
@@ -729,7 +841,7 @@ class UltraFastContractInterface {
     profit?: bigint;
     gasUsed?: bigint;
   }> {
-    // Look for UltraFastArbitrageExecuted event
+    // Look for ArbitrageExecuted event
     const event = receipt.logs.find(log => {
       try {
         const decoded = this.publicClient.decodeEventLog({
@@ -737,7 +849,7 @@ class UltraFastContractInterface {
           data: log.data,
           topics: log.topics,
         });
-        return decoded.eventName === 'UltraFastArbitrageExecuted';
+        return decoded.eventName === 'ArbitrageExecuted';
       } catch {
         return false;
       }

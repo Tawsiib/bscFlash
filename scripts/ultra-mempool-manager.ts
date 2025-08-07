@@ -655,6 +655,13 @@ export class UltraFastMempoolManager {
   }
   
   /**
+   * Stop monitoring (alias for stop method)
+   */
+  async stopMonitoring(): Promise<void> {
+    return this.stop();
+  }
+
+  /**
    * Public API methods
    */
   addEventListener(listener: (event: MempoolEvent) => void): void {

@@ -399,6 +399,85 @@ export class MEVProtectionManager {
     }
 
     /**
+     * Detect MEV threats for a given opportunity
+     */
+    async detectMEVThreats(opportunity: any): Promise<{
+        frontrunningRisk: number;
+        sandwichRisk: number;
+        mevRisk: number;
+        recommendation: string;
+    }> {
+        let frontrunningRisk = 0;
+        let sandwichRisk = 0;
+
+        if (this.config.frontrunningDetection) {
+            // Analyze pending transactions for frontrunning risk
+            const pendingTxs = await this.getPendingTransactions();
+            const similarTxs = pendingTxs.filter(tx => this.isSimilarTransaction(tx, opportunity));
+            frontrunningRisk = Math.min(similarTxs.length * 0.2, 1.0);
+        }
+
+        if (this.config.sandwichProtection) {
+            // Analyze for sandwich attack risk based on trade size
+            const tradeSize = Number(opportunity.amountIn);
+            if (tradeSize > 1000000000000000000) { // > 1 ETH equivalent
+                sandwichRisk = 0.8;
+            } else if (tradeSize > 100000000000000000) { // > 0.1 ETH
+                sandwichRisk = 0.4;
+            } else {
+                sandwichRisk = 0.1;
+            }
+        }
+
+        const mevRisk = Math.max(frontrunningRisk, sandwichRisk);
+        
+        let recommendation = 'proceed';
+        if (mevRisk > 0.7) {
+            recommendation = 'high_risk_delay';
+        } else if (mevRisk > 0.4) {
+            recommendation = 'moderate_risk_protection';
+        }
+
+        return {
+            frontrunningRisk,
+            sandwichRisk,
+            mevRisk,
+            recommendation
+        };
+    }
+
+    /**
+     * Apply MEV protection to transaction parameters
+     */
+    async applyMEVProtection(params: any): Promise<any> {
+        const protectedParams = { ...params };
+
+        // Apply gas price optimization
+        const optimalGasPrice = await this.calculateOptimalGasPrice();
+        protectedParams.gasPrice = optimalGasPrice;
+
+        // Apply slippage protection
+        if (protectedParams.minAmountOut) {
+            // Reduce min amount out by 2% for MEV protection
+            protectedParams.minAmountOut = (BigInt(protectedParams.minAmountOut) * 98n) / 100n;
+        }
+
+        // Add random delay for timing protection
+        const randomDelay = Math.floor(Math.random() * 2000) + 1000; // 1-3s
+        protectedParams.executionDelay = randomDelay;
+
+        // If high MEV risk, use commit-reveal scheme
+        if (this.config.commitRevealScheme && params.mevRisk > 0.6) {
+            const { commitment, nonce } = await this.createCommitment(protectedParams);
+            protectedParams.commitment = commitment;
+            protectedParams.nonce = nonce;
+            protectedParams.useCommitReveal = true;
+        }
+
+        return protectedParams;
+    }
+
+    /**
      * Get MEV protection statistics
      */
     async getProtectionStats(): Promise<{

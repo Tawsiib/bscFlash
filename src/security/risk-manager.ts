@@ -661,6 +661,53 @@ export class RiskManager {
     }
 
     /**
+     * Record trade execution for risk tracking
+     */
+    recordTradeExecution(trade: {
+        opportunityId: string;
+        tokenIn: Address;
+        tokenOut: Address;
+        amountIn: bigint;
+        profit: bigint;
+        gasUsed: bigint;
+        success: boolean;
+        timestamp?: number;
+        executionTime?: number;
+        riskScore?: number;
+    }): void {
+        const tradeRecord = {
+            ...trade,
+            timestamp: trade.timestamp || Date.now()
+        };
+
+        // Add to trade history
+        this.tradeHistory.push(tradeRecord);
+
+        // Update metrics
+        if (trade.success) {
+            this.metrics.consecutiveFailures = 0;
+            this.metrics.profitLoss += trade.profit;
+            this.metrics.totalExposure += trade.amountIn;
+            this.metrics.dailyVolume += trade.amountIn;
+        } else {
+            this.metrics.consecutiveFailures++;
+            this.metrics.lastFailureTime = Date.now();
+        }
+
+        // Update token exposure
+        const currentExposure = this.metrics.tokenExposures.get(trade.tokenIn) || BigInt(0);
+        this.metrics.tokenExposures.set(trade.tokenIn, currentExposure + trade.amountIn);
+
+        // Check circuit breaker conditions
+        this.checkCircuitBreaker();
+
+        // Clean old data periodically
+        if (this.tradeHistory.length % 100 === 0) {
+            this.cleanOldData();
+        }
+    }
+
+    /**
      * Emergency stop all trading
      */
     emergencyStop(): void {
