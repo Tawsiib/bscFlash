@@ -49,6 +49,8 @@
     "test:integration": "ts-node --esm scripts/test-ultra-secure-integration.ts",
     "test:integration:mainnet": "NETWORK=mainnet ts-node --esm scripts/test-ultra-secure-integration.ts",
     "test:integration:testnet": "NETWORK=testnet ts-node --esm scripts/test-ultra-secure-integration.ts",
+    "test:structure": "ts-node --esm scripts/test-code-structure.ts",
+    "test:nonce": "ts-node --esm scripts/test-nonce-system.ts",
     "test:security": "npm run test:integration -- --focus=security",
     "test:performance": "npm run test:integration -- --focus=performance",
     "test:stress": "npm run test:integration -- --focus=stress",

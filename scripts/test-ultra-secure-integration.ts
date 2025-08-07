@@ -5,14 +5,14 @@ import chalk from 'chalk';
 import dotenv from 'dotenv';
 
 // Import security components
-import { SecurityMonitor, MonitoringConfig } from '../src/monitoring/security-monitor.js';
-import { MEVProtectionManager } from '../src/security/mev-protection.js';
-import { RiskManager } from '../src/security/risk-manager.js';
-import { getSecurityConfig, validateSecurityConfig } from '../config/security-config.js';
+import { SecurityMonitor, MonitoringConfig } from '../src/monitoring/security-monitor.ts';
+import { MEVProtectionManager } from '../src/security/mev-protection.ts';
+import { RiskManager } from '../src/security/risk-manager.ts';
+import { getSecurityConfig, validateSecurityConfig } from '../config/security-config.ts';
 
 dotenv.config();
 
-interface TestConfig {
+export interface TestConfig {
   network: 'mainnet' | 'testnet';
   privateKey: string;
   contractAddress: string;
@@ -20,7 +20,7 @@ interface TestConfig {
   enableRealTransactions: boolean;
 }
 
-interface TestResult {
+export interface TestResult {
   component: string;
   test: string;
   success: boolean;
@@ -32,13 +32,15 @@ interface TestResult {
 class UltraSecureIntegrationTester {
   private account: any;
   private publicClient: any;
+  private config: TestConfig;
   private walletClient: any;
   private securityMonitor?: SecurityMonitor;
   private mevProtectionManager?: MEVProtectionManager;
   private riskManager?: RiskManager;
   private testResults: TestResult[] = [];
 
-  constructor(private config: TestConfig) {
+  constructor(config: TestConfig) {
+    this.config = config;
     this.setupClients();
   }
 
@@ -702,8 +704,8 @@ async function main() {
 }
 
 // Run if called directly
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch(console.error);
 }
 
-export { UltraSecureIntegrationTester, TestConfig, TestResult };
+export { UltraSecureIntegrationTester };

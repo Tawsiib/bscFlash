@@ -4,7 +4,7 @@
  */
 
 import { Address, parseEther, formatEther } from 'viem';
-import { SecurityConfig } from '../../config/security-config';
+import { SecurityConfig } from '../../config/security-config.ts';
 
 export interface RiskMetrics {
     totalExposure: bigint;

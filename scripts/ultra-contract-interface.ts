@@ -238,7 +238,8 @@ const ULTRA_ARBITRAGE_ABI = [
       { name: 'amount', type: 'uint256' },
       { name: 'profit', type: 'uint256' },
       { name: 'gasUsed', type: 'uint256' },
-      { name: 'executor', type: 'address', indexed: true }
+      { name: 'executor', type: 'address', indexed: true },
+      { name: 'nonce', type: 'uint256' }
     ]
   },
   
@@ -275,18 +276,18 @@ const ULTRA_ARBITRAGE_ABI = [
 ] as const;
 
 // Exchange identifiers for gas optimization
-enum ExchangeId {
-  PANCAKESWAP_V2 = 0,
-  PANCAKESWAP_V3 = 1,
-  UNISWAP_V2 = 2,
-  UNISWAP_V3 = 3,
-  SUSHISWAP = 4,
-  BISWAP = 5,
-  APESWAP = 6,
-  BABYSWAP = 7,
-  MDEX = 8,
-  BAKERYSWAP = 9
-}
+const ExchangeId = {
+  PANCAKESWAP_V2: 0,
+  PANCAKESWAP_V3: 1,
+  UNISWAP_V2: 2,
+  UNISWAP_V3: 3,
+  SUSHISWAP: 4,
+  BISWAP: 5,
+  APESWAP: 6,
+  BABYSWAP: 7,
+  MDEX: 8,
+  BAKERYSWAP: 9
+} as const;
 
 // Trade parameters for batch operations
 interface TradeParams {
@@ -388,7 +389,10 @@ class UltraFastContractInterface {
   private batchQueue: TradeParams[] = [];
   private batchTimer?: NodeJS.Timeout;
   
-  constructor(private config: ContractConfig) {
+  private config: ContractConfig;
+  
+  constructor(config: ContractConfig) {
+    this.config = config;
     this.setupClients();
   }
 

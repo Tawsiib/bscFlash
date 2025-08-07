@@ -38,6 +38,7 @@ interface UltraArbitrageConfig {
   network: 'mainnet' | 'testnet';
   privateKey: string;
   contractAddress: Address;
+  routerAddresses: Address[];
   
   // Performance settings
   maxConcurrentArbitrages: number;
@@ -192,6 +193,12 @@ const config: UltraArbitrageConfig = {
   network: (process.env.NETWORK as 'mainnet' | 'testnet') || 'testnet',
   privateKey: process.env.PRIVATE_KEY!,
   contractAddress: process.env.CONTRACT_ADDRESS as Address,
+  routerAddresses: [
+    '0x10ED43C718714eb63d5aA57B78B54704E256024E', // PancakeSwap V2 Router
+    '0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506', // SushiSwap Router
+    '0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F', // PancakeSwap V1 Router
+    '0xd954551853F55deb4Ae31407c423e67B1621424A'  // BiSwap Router
+  ] as Address[],
   
   // Performance settings
   maxConcurrentArbitrages: 10,
@@ -228,6 +235,34 @@ const config: UltraArbitrageConfig = {
   enablePredictiveAnalysis: true,
   enableMLOptimization: true,
   enableCrossChainArbitrage: false,
+  enableAdvancedRouting: true,
+  
+  // Contract interface settings
+  contractConfig: {
+    contractAddress: process.env.CONTRACT_ADDRESS as Address,
+    enableBatching: true,
+    batchSize: 5,
+    enableGasOptimization: true,
+    gasStrategy: 'mev-protected',
+    enableMEVProtection: true,
+    maxRetries: 3,
+    retryDelay: 1000,
+    enableFailover: true,
+    enableMetrics: true,
+  },
+  
+  // Price oracle settings
+  oracleConfig: {
+    enableMultipleOracles: true,
+    primaryOracle: 'chainlink',
+    fallbackOracles: ['pancakeswap', 'uniswap'],
+    priceDeviationThreshold: 0.05,
+    updateInterval: 5000,
+    enablePriceValidation: true,
+    maxPriceAge: 30000,
+    enableArbitrageDetection: true,
+    minProfitThreshold: parseEther('0.001'),
+  },
 };
 
 /**
